@@ -27,7 +27,8 @@ OFFSET_SECS = 'offset_seconds'
 # DATABASE CLASS INSTANCES:
 DATABASES = {
     'mysql': ("dejavu.database_handler.mysql_database", "MySQLDatabase"),
-    'postgres': ("dejavu.database_handler.postgres_database", "PostgreSQLDatabase")
+    'postgres': ("dejavu.database_handler.postgres_database", "PostgreSQLDatabase"),
+    'mongodb': ("dejavu.database_handler.mongo_database", "MongoDatabase")
 }
 
 # TABLE SONGS
@@ -99,4 +100,4 @@ PEAK_SORT = True
 FINGERPRINT_REDUCTION = 20
 
 # Number of results being returned for file recognition
-TOPN = 2
+TOPN = 100

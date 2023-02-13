@@ -186,10 +186,10 @@ def get_database(database_type: str = "mysql") -> BaseDatabase:
     :param database_type: type of the database.
     :return: an instance of BaseDatabase depending on given database_type.
     """
-    try:
-        path, db_class_name = DATABASES[database_type]
-        db_module = importlib.import_module(path)
-        db_class = getattr(db_module, db_class_name)
-        return db_class
-    except (ImportError, KeyError):
-        raise TypeError("Unsupported database type supplied.")
+    #try:
+    path, db_class_name = DATABASES[database_type]
+    db_module = importlib.import_module(path)
+    db_class = getattr(db_module, db_class_name)
+    return db_class
+    #except (ImportError, KeyError):
+    #    raise TypeError("Unsupported database type supplied.")
