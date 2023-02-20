@@ -1,6 +1,7 @@
 import os
 import time
 from functools import wraps
+from itertools import groupby
 from dejavu.base_classes.base_database import get_database
 import dejavu.logic.fingerprint as djv_fingerprint
 import numpy as np
@@ -10,6 +11,7 @@ import sys
 import pydub
 from timeFunc import get_seconds, get_time_string
 from hashlib import sha1
+
 
 
 def timeit(func):
@@ -45,7 +47,7 @@ class ComDet(object):
             "db": "dejavu"
         })
         config.setdefault('database_type', 'mongodb')
-        config.setdefault('analyze_span', 2)
+        config.setdefault('analyze_span', 3)
         config.setdefault('analyze_skip', 1)
         config.setdefault('confidence_thresh', 10)
 
@@ -165,59 +167,47 @@ class ComDet(object):
     def find_matches(self, samples, Fs=djv_fingerprint.DEFAULT_FS):
 
         hashes = djv_fingerprint.fingerprint(samples, Fs=Fs)
-        return self.db.return_matches(hashes)
+        return self.db.return_matches(hashes), len(hashes)
 
-    def align_matches(self, matches):
+    def align_matches(self, matches, dedup_hashes, queried_hashes: int,
+                      topn: int = 2):
         """
             Finds hash matches that align in time with other matches and finds
             consensus about which hashes are "true" signal from the audio.
             Returns a dictionary with match information.
         """
-        # align by diffs
-        diff_counter = {}
-        largest = 0
-        largest_count = 0
-        ad_id = -1
-        #print(matches)
-        for (aid, diff) in matches:
-            #print(tup)
-            #aid, diff = tup
-            if diff not in diff_counter:
-                diff_counter[diff] = {}
-            if aid not in diff_counter[diff]:
-                diff_counter[diff][aid] = 0
-            diff_counter[diff][aid] += 1
 
-            if diff_counter[diff][aid] > largest_count:
-                largest = diff
-                largest_count = diff_counter[diff][aid]
-                ad_id = aid
+        sorted_matches = sorted(matches, key=lambda m: (m[0], m[1]))
+        counts = [(*key, len(list(group))) for key, group in groupby(sorted_matches, key=lambda m: (m[0], m[1]))]
+        songs_matches = sorted(
+            [max(list(group), key=lambda g: g[2]) for key, group in groupby(counts, key=lambda count: count[0])],
+            key=lambda count: count[2], reverse=True
+        )
 
-        # extract idenfication
-        ad = self.db.get_song_by_id(ad_id)
+        songs_result = []
+        for song_id, offset, _ in songs_matches[0:topn]:  # consider topn elements in the result
+            ad = self.db.get_song_by_id(song_id)
 
-        # return match info
-        nseconds = round(float(largest) / djv_fingerprint.DEFAULT_FS *
-                         djv_fingerprint.DEFAULT_WINDOW_SIZE *
-                         djv_fingerprint.DEFAULT_OVERLAP_RATIO, 5)
-
-        # Will only return valid ads that were detected from the database.
-        if ad and int(largest_count) >= self.config['confidence_thresh'] and (
-                0 <= nseconds <= ad["total_hashes"]):
-            # TODO: Clarify what `get_ad_by_id` should return.
+            nseconds = round(float(offset) / djv_fingerprint.DEFAULT_FS *
+                             djv_fingerprint.DEFAULT_WINDOW_SIZE *
+                             djv_fingerprint.DEFAULT_OVERLAP_RATIO, 5)
+            hashes_matched = dedup_hashes[song_id]
             adname = ad.get(ComDet.AD_NAME, None)
             duration = ad["total_hashes"]
-        else:
-            return None
+            ad = {
+                ComDet.AD_ID: song_id,
+                ComDet.AD_NAME: adname,
+                ComDet.AD_DURATION: duration,
+                "INPUT_CONFIDENCE": round(hashes_matched / queried_hashes, 2),
+                # Percentage regarding hashes matched vs hashes fingerprinted in the db.
+                "FINGERPRINTED_CONFIDENCE": round(hashes_matched / duration, 2),
+                ComDet.OFFSET: offset,
+                ComDet.OFFSET_SECS: nseconds}
 
-        ad = {
-            ComDet.AD_ID: ad_id,
-            ComDet.AD_NAME: adname,
-            ComDet.AD_DURATION: duration,
-            ComDet.CONFIDENCE: largest_count,
-            ComDet.OFFSET: int(largest),
-            ComDet.OFFSET_SECS: nseconds}
-        return ad
+            songs_result.append(ad)
+
+        return songs_result
+
 
     def recognize_segment(self, audio_segment):
         """
@@ -231,8 +221,8 @@ class ComDet(object):
         data = np.fromstring(audio_segment._data, np.int16)
         data = data[0::audio_segment.channels]
         Fs = audio_segment.frame_rate
-        matches = self.find_matches(data, Fs=Fs)
-        return self.align_matches(matches)
+        (matches, dedup_hashes), count = self.find_matches(data, Fs=Fs)
+        return self.align_matches(matches, dedup_hashes, count)
 
     def recognize_ads_file(self, input_file_path):
         """
@@ -262,12 +252,18 @@ class ComDet(object):
             ad = self.recognize_segment(audio_segment)
 
             if ad:
-                strt = int(strt - ad[ComDet.OFFSET_SECS])
+                ad = ad[0]
                 end = int(strt + ad[ComDet.AD_DURATION])
-                strt_string = get_time_string(strt)
                 end_string = get_time_string(end)
-                print("Found:", strt_string, end_string, ad[ComDet.AD_NAME], ad[ComDet.CONFIDENCE])
-                labels.append([strt_string, end_string, ad[ComDet.AD_NAME]])
+                if strt == end:
+                    end += self.config['analyze_skip']
+                strt = int(strt - ad[ComDet.OFFSET_SECS])
+
+                strt_string = get_time_string(strt)
+                if ad["FINGERPRINTED_CONFIDENCE"] > 0.2:
+                    print("Found:", strt_string, end_string, ad[ComDet.AD_NAME], ad["INPUT_CONFIDENCE"], ad["FINGERPRINTED_CONFIDENCE"])
+                    labels.append([strt_string, end_string, ad[ComDet.AD_NAME]])
+
                 strt = end
             else:
                 strt += self.config['analyze_skip']

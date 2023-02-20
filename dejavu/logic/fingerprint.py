@@ -47,7 +47,6 @@ def fingerprint(channel_samples: List[int],
     arr2D = 10 * np.log10(arr2D, out=np.zeros_like(arr2D), where=(arr2D != 0))
 
     local_maxima = get_2D_peaks(arr2D, plot=False, amp_min=amp_min)
-
     # return hashes
     return generate_hashes(local_maxima, fan_value=fan_value)
 

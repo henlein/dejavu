@@ -9,9 +9,11 @@ class MongoDatabase(BaseDatabase):
         self.options = options
 
     def setup(self):
-        #self.client = pymongo.MongoClient('mongodb://%s:%s@127.0.0.1/' % ("xyz", "abc"))
-        self.client = pymongo.MongoClient('mongodb://xyz:abc@127.0.0.1:27117/?authSource=admin')
-        #self.client = pymongo.MongoClient(self.options.get('uri', 'mongodb://xyz:abz@127.0.0.1:27117'))
+        host = self.options.get("host", "127.0.0.1")
+        port = self.options.get("port", 27017)
+        usr = self.options.get("user", "user")
+        pw = self.options.get("password", "password")
+        self.client = pymongo.MongoClient(f'mongodb://{usr}:{pw}@{host}:{port}/?authSource=admin')
         self.db = self.client[self.options.get('database', 'dejavu')]
 
     def empty(self):
@@ -94,7 +96,7 @@ class MongoDatabase(BaseDatabase):
             #  we now evaluate all offset for each  hash matched
             for song_sampled_offset in mapper[hsh]:
                 return_value.append((sid, offset - song_sampled_offset))
-        return return_value #, dedup_hashes
+        return return_value, dedup_hashes
 
     def delete_songs_by_id(self, song_ids: List[int], batch_size: int = 1000) -> None:
         self.db['fingerprints'].delete({'song_id': {'$in': song_ids}})

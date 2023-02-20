@@ -78,7 +78,6 @@ def read(file_name: str, limit: int = None) -> Tuple[List[List[int]], int, str]:
         for chn in range(audiofile.channels):
             channels.append(data[chn::audiofile.channels])
 
-        audiofile.frame_rate
     except audioop.error:
         _, _, audiofile = wavio.readwav(file_name)
 
